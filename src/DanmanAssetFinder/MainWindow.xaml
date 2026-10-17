@@ -365,40 +365,87 @@
                 </StackPanel>
             </Border>
 
-            <StackPanel DockPanel.Dock="Bottom" Margin="18,12,18,16">
-                <Button Command="{Binding OpenUpdatePageCommand}"
-                        Cursor="Hand"
-                        Margin="0,0,0,10"
-                        Visibility="{Binding UpdateAvailable, Converter={StaticResource BoolToVis}}"
-                        ToolTip="{Binding UpdateStatus}">
-                    <Button.Template>
-                        <ControlTemplate TargetType="Button">
-                            <Border x:Name="Bd" Background="{StaticResource AccentBrush}" Padding="10,8">
-                                <StackPanel>
-                                    <TextBlock Text="UPDATE AVAILABLE"
-                                               FontSize="9"
-                                               FontWeight="Bold"
-                                               Foreground="#FF000000" />
-                                    <TextBlock Text="{Binding LatestVersion, StringFormat=GET {0}}"
-                                               FontSize="11"
-                                               FontWeight="Bold"
-                                               Foreground="#FF000000"
-                                               Margin="0,2,0,0" />
-                                </StackPanel>
-                            </Border>
-                            <ControlTemplate.Triggers>
-                                <Trigger Property="IsMouseOver" Value="True">
-                                    <Setter TargetName="Bd" Property="Background" Value="#FFA78BFA" />
-                                </Trigger>
-                            </ControlTemplate.Triggers>
-                        </ControlTemplate>
-                    </Button.Template>
-                </Button>
-                <TextBlock Text="{Binding AppVersion}"
-                           Foreground="{StaticResource MutedBrush}"
-                           FontSize="10"
-                           Opacity="0.75" />
-            </StackPanel>
+            <Border DockPanel.Dock="Bottom"
+                    Margin="14,8,14,14"
+                    Background="#FF0A0A0A"
+                    Padding="14,14">
+                <StackPanel>
+                    <TextBlock Text="BUILD"
+                               FontSize="9"
+                               FontWeight="Bold"
+                               Foreground="{StaticResource MutedBrush}"
+                               Margin="0,0,0,8" />
+
+                    <Grid Margin="0,0,0,10">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="{Binding AppVersion}"
+                                   FontSize="18"
+                                   FontWeight="Bold"
+                                   Foreground="{StaticResource TextBrush}"
+                                   VerticalAlignment="Center" />
+                        <Border Grid.Column="1"
+                                Background="{StaticResource AccentFillBrush}"
+                                Padding="8,4"
+                                VerticalAlignment="Center">
+                            <TextBlock Text="CURRENT"
+                                       FontSize="9"
+                                       FontWeight="Bold"
+                                       Foreground="#FFD8B4FE" />
+                        </Border>
+                    </Grid>
+
+                    <TextBlock Text="{Binding UpdateStatus}"
+                               FontSize="10"
+                               Foreground="{StaticResource MutedBrush}"
+                               TextWrapping="Wrap"
+                               Margin="0,0,0,12"
+                               MinHeight="28"
+                               ToolTip="{Binding UpdateStatus}" />
+
+                    <Button Content="{Binding CheckUpdatesLabel}"
+                            Style="{StaticResource FlatButton}"
+                            FontSize="11"
+                            FontWeight="Bold"
+                            Padding="10,10"
+                            Margin="0,0,0,2"
+                            HorizontalAlignment="Stretch"
+                            Command="{Binding CheckForUpdatesCommand}" />
+
+                    <Button Command="{Binding OpenUpdatePageCommand}"
+                            Cursor="Hand"
+                            Margin="0,2,0,0"
+                            Visibility="{Binding UpdateAvailable, Converter={StaticResource BoolToVis}}"
+                            ToolTip="Open GitHub releases">
+                        <Button.Template>
+                            <ControlTemplate TargetType="Button">
+                                <Border x:Name="Bd" Background="{StaticResource AccentBrush}" Padding="10,10">
+                                    <StackPanel>
+                                        <TextBlock Text="UPDATE AVAILABLE"
+                                                   FontSize="9"
+                                                   FontWeight="Bold"
+                                                   Foreground="#FF000000"
+                                                   HorizontalAlignment="Center" />
+                                        <TextBlock Text="{Binding LatestVersion, StringFormat=OPEN {0}}"
+                                                   FontSize="12"
+                                                   FontWeight="Bold"
+                                                   Foreground="#FF000000"
+                                                   HorizontalAlignment="Center"
+                                                   Margin="0,2,0,0" />
+                                    </StackPanel>
+                                </Border>
+                                <ControlTemplate.Triggers>
+                                    <Trigger Property="IsMouseOver" Value="True">
+                                        <Setter TargetName="Bd" Property="Background" Value="#FFA78BFA" />
+                                    </Trigger>
+                                </ControlTemplate.Triggers>
+                            </ControlTemplate>
+                        </Button.Template>
+                    </Button>
+                </StackPanel>
+            </Border>
 
             <StackPanel Margin="0,28,0,0">
                 <TextBlock Text="LIBRARY"

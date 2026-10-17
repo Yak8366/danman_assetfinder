@@ -75,6 +75,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
         OpenUpdatePageCommand = new RelayCommand(
             _ => OpenUpdatePage(),
             _ => UpdateAvailable && !string.IsNullOrWhiteSpace(_updateUrl));
+        CheckForUpdatesCommand = new RelayCommand(
+            async _ => await CheckForUpdatesAsync(),
+            _ => !IsCheckingUpdates);
 
         _ = RescanLocalAsync();
         _ = CheckForUpdatesAsync();
@@ -267,6 +270,20 @@ public sealed class MainViewModel : INotifyPropertyChanged
         }
     }
 
+    public bool IsCheckingUpdates
+    {
+        get => _isCheckingUpdates;
+        private set
+        {
+            _isCheckingUpdates = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(CheckUpdatesLabel));
+            CommandManager.InvalidateRequerySuggested();
+        }
+    }
+
+    public string CheckUpdatesLabel => IsCheckingUpdates ? "CHECKING" : "CHECK FOR UPDATES";
+
     public string? LatestVersion
     {
         get => _latestVersion;
@@ -299,6 +316,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public ICommand NextPageCommand { get; }
     public ICommand PrevPageCommand { get; }
     public ICommand OpenUpdatePageCommand { get; }
+    public ICommand CheckForUpdatesCommand { get; }
 
     private void BrowseFolder()
     {
@@ -317,13 +335,24 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     private async Task CheckForUpdatesAsync()
     {
+        if (IsCheckingUpdates)
+            return;
+
+        IsCheckingUpdates = true;
         UpdateStatus = "Checking for updates…";
-        var result = await UpdateCheckService.CheckAsync(AppVersion);
-        UpdateAvailable = result.UpdateAvailable;
-        LatestVersion = result.LatestVersion;
-        _updateUrl = result.ReleaseUrl;
-        UpdateStatus = result.Message ?? string.Empty;
-        CommandManager.InvalidateRequerySuggested();
+        try
+        {
+            var result = await UpdateCheckService.CheckAsync(AppVersion);
+            UpdateAvailable = result.UpdateAvailable;
+            LatestVersion = result.LatestVersion;
+            _updateUrl = result.ReleaseUrl;
+            UpdateStatus = result.Message ?? string.Empty;
+        }
+        finally
+        {
+            IsCheckingUpdates = false;
+            CommandManager.InvalidateRequerySuggested();
+        }
     }
 
     private void OpenUpdatePage()
