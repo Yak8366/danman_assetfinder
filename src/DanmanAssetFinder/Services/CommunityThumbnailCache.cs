@@ -8,6 +8,8 @@ namespace DanmanAssetFinder.Services;
 
 public static class CommunityThumbnailCache
 {
+    public const int MaxDecodePixels = 256;
+
     private static readonly HttpClient Http = CreateClient();
     private static readonly object Gate = new();
 
@@ -29,7 +31,7 @@ public static class CommunityThumbnailCache
         }
 
         Directory.CreateDirectory(CacheRoot);
-        var cachePath = Path.Combine(CacheRoot, Hash(remoteUrl) + ".png");
+        var cachePath = Path.Combine(CacheRoot, Hash(remoteUrl) + $"_{MaxDecodePixels}.png");
         if (File.Exists(cachePath) && new FileInfo(cachePath).Length > 0)
             return cachePath;
 
@@ -46,10 +48,11 @@ public static class CommunityThumbnailCache
             if (bitmap is null)
                 return null;
 
+            using var scaled = ScaleDown(bitmap, MaxDecodePixels);
             lock (Gate)
             {
-                using var image = SKImage.FromBitmap(bitmap);
-                using var data = image.Encode(SKEncodedImageFormat.Png, 90);
+                using var image = SKImage.FromBitmap(scaled);
+                using var data = image.Encode(SKEncodedImageFormat.Png, 80);
                 using var file = File.Create(cachePath);
                 data.SaveTo(file);
             }
@@ -62,7 +65,7 @@ public static class CommunityThumbnailCache
         }
     }
 
-    public static BitmapImage? LoadBitmapFromFile(string? path)
+    public static BitmapImage? LoadBitmapFromFile(string? path, int decodePixels = MaxDecodePixels)
     {
         if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
             return null;
@@ -73,6 +76,7 @@ public static class CommunityThumbnailCache
             image.BeginInit();
             image.CacheOption = BitmapCacheOption.OnLoad;
             image.CreateOptions = BitmapCreateOptions.IgnoreImageCache;
+            image.DecodePixelWidth = decodePixels;
             image.UriSource = new Uri(path, UriKind.Absolute);
             image.EndInit();
             image.Freeze();
@@ -82,6 +86,18 @@ public static class CommunityThumbnailCache
         {
             return null;
         }
+    }
+
+    private static SKBitmap ScaleDown(SKBitmap source, int maxEdge)
+    {
+        var longest = Math.Max(source.Width, source.Height);
+        if (longest <= maxEdge)
+            return source.Copy();
+
+        var scale = maxEdge / (float)longest;
+        var w = Math.Max(1, (int)(source.Width * scale));
+        var h = Math.Max(1, (int)(source.Height * scale));
+        return source.Resize(new SKImageInfo(w, h), new SKSamplingOptions(SKFilterMode.Linear));
     }
 
     private static HttpClient CreateClient()
