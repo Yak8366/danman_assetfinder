@@ -1,6 +1,6 @@
 # Danman S&box Asset Finder
 
-Windows desktop tool (WPF / C#) to browse S&box asset pack folders for **clothes**, **props**, **sounds**, and **entities**. Copy game-relative paths for use in the editor or code, preview models when source meshes are available, and browse assets in a grid.
+Windows desktop tool (WPF / C#) to browse S&box asset pack folders for **clothes**, **props**, **sounds**, and **entities**. Copy game-relative paths for use in the editor or code, preview models when source meshes are available, and browse assets easier without having to open S&box editor. (It shouldn't be that hard in the first place)
 
 ## Requirements
 
@@ -10,7 +10,7 @@ Windows desktop tool (WPF / C#) to browse S&box asset pack folders for **clothes
 ## Run
 
 ```powershell
-cd M:\Projects\danman_assetfinder\src\DanmanAssetFinder
+cd danman_assetfinder\src\DanmanAssetFinder
 dotnet run
 ```
 
@@ -29,15 +29,13 @@ The app walks upward to find an `Assets` root so copied paths look like `models/
 
 ## Features
 
-- **Clothes subtabs**: All · Local · Community · Favorite
+- **Find assets** pulls all the assets from the game folder
 - **Community clothing** pulled from [sbox.game/ugc/clothing](https://sbox.game/ugc/clothing) (WebView2 scrape of the workshop page)
-- **Favorites** — star any local or community asset; persisted under `%LocalAppData%\DanmanAssetFinder`
-- **Grid layout** with local `{name}.clothing.png` / `.jpg` / `.jpeg` previews
-- **Copy path** / open community package page on sbox.game
-- **Search** across name, path, and package ident
+- **Favorites** star any local or community asset; persisted under `%LocalAppData%\DanmanAssetFinder`
+- **Copy path** open community package page on sbox.game
 
 ## Notes
 
 - Community tab needs the [WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/) (usually already on Windows 10/11).
 - First community refresh can take a few seconds while the workshop page loads.
-- Compiled `.vmdl` cannot be rendered outside S&box; local previews use sibling PNGs / `.sbox/thumbnails`.
+- I don't have a linux build yet, but its planned soon after I fix all the current bugs and/or issues.

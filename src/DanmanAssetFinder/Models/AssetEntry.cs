@@ -70,6 +70,9 @@ public sealed class AssetEntry : INotifyPropertyChanged
         }
     }
 
+    /// <summary>Bumped on unload so in-flight thumbnail loads are discarded.</summary>
+    public int ThumbnailEpoch { get; set; }
+
     public bool HasThumbnail => ThumbnailImage is not null;
     public bool ShowSkeleton => IsSkeleton || (IsLoadingThumbnail && ThumbnailImage is null);
 

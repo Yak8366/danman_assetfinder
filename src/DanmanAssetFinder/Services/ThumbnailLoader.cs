@@ -6,11 +6,11 @@ using DanmanAssetFinder.Models;
 
 namespace DanmanAssetFinder.Services;
 
-/// <summary>Loads local/remote thumbnails off the UI thread and assigns BitmapImages asynchronously.</summary>
+/// <summary>Loads thumbnails off the UI thread; only for the current page; can unload off-page images.</summary>
 public static class ThumbnailLoader
 {
     private static readonly ConcurrentDictionary<string, byte> Queued = new(StringComparer.OrdinalIgnoreCase);
-    private static readonly SemaphoreSlim Gate = new(6);
+    private static readonly SemaphoreSlim Gate = new(3);
 
     public static void Queue(AssetEntry asset)
     {
@@ -21,16 +21,14 @@ public static class ThumbnailLoader
         if (string.IsNullOrWhiteSpace(source))
             return;
 
-        if (!Queued.TryAdd(asset.FavoriteKey + "|" + source, 0))
+        var key = asset.FavoriteKey + "|" + source;
+        if (!Queued.TryAdd(key, 0))
             return;
 
-        var isRemote = source.StartsWith("http://", StringComparison.OrdinalIgnoreCase)
-            || source.StartsWith("https://", StringComparison.OrdinalIgnoreCase);
-        // Only remote thumbs show skeleton pulse; local files load quietly
-        if (isRemote)
-            asset.IsLoadingThumbnail = true;
+        var epoch = asset.ThumbnailEpoch;
+        asset.IsLoadingThumbnail = true;
 
-        _ = Task.Run(() => LoadAsync(asset, source));
+        _ = Task.Run(() => LoadAsync(asset, source, key, epoch));
     }
 
     public static void QueueMany(IEnumerable<AssetEntry> assets)
@@ -39,11 +37,22 @@ public static class ThumbnailLoader
             Queue(asset);
     }
 
-    private static async Task LoadAsync(AssetEntry asset, string source)
+    /// <summary>Release decoded bitmaps so the GC can reclaim RAM when leaving a page.</summary>
+    public static void Unload(AssetEntry asset)
+    {
+        asset.ThumbnailEpoch++;
+        asset.ThumbnailImage = null;
+        asset.IsLoadingThumbnail = false;
+    }
+
+    private static async Task LoadAsync(AssetEntry asset, string source, string key, int epoch)
     {
         await Gate.WaitAsync().ConfigureAwait(false);
         try
         {
+            if (asset.ThumbnailEpoch != epoch)
+                return;
+
             BitmapImage? image = null;
 
             var isRemote = source.StartsWith("http://", StringComparison.OrdinalIgnoreCase)
@@ -60,34 +69,41 @@ public static class ThumbnailLoader
                 image = CommunityThumbnailCache.LoadBitmapFromFile(source);
             }
 
+            if (asset.ThumbnailEpoch != epoch)
+                return;
+
             var dispatcher = Application.Current?.Dispatcher;
             if (dispatcher is null)
                 return;
 
             await dispatcher.InvokeAsync(() =>
             {
+                if (asset.ThumbnailEpoch != epoch)
+                    return;
+
                 asset.ThumbnailImage = image;
                 asset.IsLoadingThumbnail = false;
-                if (!string.IsNullOrWhiteSpace(source) && image is not null
-                    && (source.StartsWith("http://", StringComparison.OrdinalIgnoreCase)
-                        || source.StartsWith("https://", StringComparison.OrdinalIgnoreCase)))
-                {
-                    // Keep remote URL on ThumbnailPath for preview/cache; local file optional
-                }
             }, DispatcherPriority.Background);
         }
         catch
         {
+            if (asset.ThumbnailEpoch != epoch)
+                return;
+
             var dispatcher = Application.Current?.Dispatcher;
             if (dispatcher is not null)
             {
-                await dispatcher.InvokeAsync(() => asset.IsLoadingThumbnail = false, DispatcherPriority.Background);
+                await dispatcher.InvokeAsync(() =>
+                {
+                    if (asset.ThumbnailEpoch == epoch)
+                        asset.IsLoadingThumbnail = false;
+                }, DispatcherPriority.Background);
             }
         }
         finally
         {
             Gate.Release();
-            Queued.TryRemove(asset.FavoriteKey + "|" + source, out _);
+            Queued.TryRemove(key, out _);
         }
     }
 }

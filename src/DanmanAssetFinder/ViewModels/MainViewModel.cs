@@ -13,6 +13,8 @@ namespace DanmanAssetFinder.ViewModels;
 
 public sealed class MainViewModel : INotifyPropertyChanged
 {
+    public const int PageSize = 48;
+
     private readonly UserSettings _settings;
     private readonly HashSet<string> _favoriteKeys;
     private CancellationTokenSource? _scanCts;
@@ -26,8 +28,16 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private string _statusText = "Select an asset pack folder to begin.";
     private bool _isScanning;
     private bool _isLoadingCommunity;
+    private int _currentPage = 1;
+    private int _totalFiltered;
+    private bool _updateAvailable;
+    private bool _isCheckingUpdates;
+    private string? _latestVersion;
+    private string? _updateUrl;
+    private string _updateStatus = string.Empty;
     private List<AssetEntry> _localAssets = [];
     private List<AssetEntry> _communityAssets = [];
+    private List<AssetEntry> _filtered = [];
 
     public MainViewModel()
     {
@@ -37,9 +47,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
         BrowseFolderCommand = new RelayCommand(_ => BrowseFolder());
         RescanCommand = new RelayCommand(_ => _ = RescanLocalAsync(), _ => !IsScanning && Directory.Exists(FolderPath));
-        CopyPathCommand = new RelayCommand(_ => CopyPath(), _ => SelectedAsset is not null);
-        CopyFullPathCommand = new RelayCommand(_ => CopyFullPath(), _ => SelectedAsset is not null && !SelectedAsset.IsCommunity);
-        ToggleFavoriteCommand = new RelayCommand(p => ToggleFavorite(p as AssetEntry), p => p is AssetEntry);
+        CopyPathCommand = new RelayCommand(_ => CopyPath(), _ => SelectedAsset is not null && SelectedAsset is { IsSkeleton: false });
+        CopyFullPathCommand = new RelayCommand(_ => CopyFullPath(), _ => SelectedAsset is { IsCommunity: false, IsSkeleton: false });
+        ToggleFavoriteCommand = new RelayCommand(p => ToggleFavorite(p as AssetEntry), p => p is AssetEntry { IsSkeleton: false });
         OpenCommunityPageCommand = new RelayCommand(
             _ => OpenCommunityPage(),
             _ => SelectedAsset?.IsCommunity == true && !string.IsNullOrWhiteSpace(SelectedAsset.CommunityUrl));
@@ -60,8 +70,14 @@ public sealed class MainViewModel : INotifyPropertyChanged
             else if (p is string s && Enum.TryParse<ClothingSourceFilter>(s, out var parsed))
                 ClothingFilter = parsed;
         });
+        NextPageCommand = new RelayCommand(_ => CurrentPage++, _ => CurrentPage < TotalPages);
+        PrevPageCommand = new RelayCommand(_ => CurrentPage--, _ => CurrentPage > 1);
+        OpenUpdatePageCommand = new RelayCommand(
+            _ => OpenUpdatePage(),
+            _ => UpdateAvailable && !string.IsNullOrWhiteSpace(_updateUrl));
 
         _ = RescanLocalAsync();
+        _ = CheckForUpdatesAsync();
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
@@ -104,7 +120,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             _clothingFilter = value;
             OnPropertyChanged();
             OnPropertyChanged(nameof(ShowFolderBar));
-            ApplyFilter();
+            ApplyFilter(resetPage: true);
 
             if (SelectedCategory == AssetCategory.Clothes
                 && value is ClothingSourceFilter.Community or ClothingSourceFilter.All
@@ -154,9 +170,37 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
             _searchText = value;
             OnPropertyChanged();
-            ApplyFilter();
+            ApplyFilter(resetPage: true);
         }
     }
+
+    public int CurrentPage
+    {
+        get => _currentPage;
+        set
+        {
+            var clamped = Math.Clamp(value, 1, Math.Max(1, TotalPages));
+            if (_currentPage == clamped)
+                return;
+
+            _currentPage = clamped;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(PageLabel));
+            OnPropertyChanged(nameof(CanGoPrev));
+            OnPropertyChanged(nameof(CanGoNext));
+            RenderPage();
+            CommandManager.InvalidateRequerySuggested();
+        }
+    }
+
+    public int TotalPages => Math.Max(1, (int)Math.Ceiling(_totalFiltered / (double)PageSize));
+
+    public string PageLabel => _totalFiltered == 0
+        ? "0 items"
+        : $"PAGE {CurrentPage} / {TotalPages}  ·  {_totalFiltered} ITEMS";
+
+    public bool CanGoPrev => CurrentPage > 1;
+    public bool CanGoNext => CurrentPage < TotalPages;
 
     public AssetEntry? SelectedAsset
     {
@@ -212,6 +256,37 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     public bool IsBusy => IsScanning || IsLoadingCommunity;
 
+    public bool UpdateAvailable
+    {
+        get => _updateAvailable;
+        private set
+        {
+            _updateAvailable = value;
+            OnPropertyChanged();
+            CommandManager.InvalidateRequerySuggested();
+        }
+    }
+
+    public string? LatestVersion
+    {
+        get => _latestVersion;
+        private set
+        {
+            _latestVersion = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public string UpdateStatus
+    {
+        get => _updateStatus;
+        private set
+        {
+            _updateStatus = value;
+            OnPropertyChanged();
+        }
+    }
+
     public ICommand BrowseFolderCommand { get; }
     public ICommand RescanCommand { get; }
     public ICommand CopyPathCommand { get; }
@@ -221,6 +296,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public ICommand RefreshCommunityCommand { get; }
     public ICommand SetCategoryCommand { get; }
     public ICommand SetClothingFilterCommand { get; }
+    public ICommand NextPageCommand { get; }
+    public ICommand PrevPageCommand { get; }
+    public ICommand OpenUpdatePageCommand { get; }
 
     private void BrowseFolder()
     {
@@ -237,6 +315,23 @@ public sealed class MainViewModel : INotifyPropertyChanged
         _ = RescanLocalAsync();
     }
 
+    private async Task CheckForUpdatesAsync()
+    {
+        UpdateStatus = "Checking for updates…";
+        var result = await UpdateCheckService.CheckAsync(AppVersion);
+        UpdateAvailable = result.UpdateAvailable;
+        LatestVersion = result.LatestVersion;
+        _updateUrl = result.ReleaseUrl;
+        UpdateStatus = result.Message ?? string.Empty;
+        CommandManager.InvalidateRequerySuggested();
+    }
+
+    private void OpenUpdatePage()
+    {
+        var url = _updateUrl ?? AppReleaseInfo.ReleasesPageUrl;
+        Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
+    }
+
     private async Task RescanLocalAsync()
     {
         _scanCts?.Cancel();
@@ -246,7 +341,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         if (!Directory.Exists(FolderPath))
         {
             _localAssets = [];
-            ApplyFilter();
+            ApplyFilter(resetPage: true);
             StatusText = string.IsNullOrWhiteSpace(FolderPath)
                 ? "Choose a folder containing S&box assets."
                 : "Folder not found. Browse to a valid asset pack path.";
@@ -272,18 +367,16 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
             token.ThrowIfCancellationRequested();
             _localAssets = scanned;
-            ApplyFilter();
-            ThumbnailLoader.QueueMany(_localAssets);
+            ApplyFilter(resetPage: true);
             StatusText = $"{_localAssets.Count} local {category.DisplayName().ToLowerInvariant()}";
         }
         catch (OperationCanceledException)
         {
-            // superseded by a newer scan
         }
         catch (Exception ex)
         {
             _localAssets = [];
-            ApplyFilter();
+            ApplyFilter(resetPage: true);
             StatusText = $"Scan failed: {ex.Message}";
         }
         finally
@@ -312,54 +405,32 @@ public sealed class MainViewModel : INotifyPropertyChanged
         StatusText = "Loading community clothing from sbox.game...";
 
         if (ClothingFilter is ClothingSourceFilter.Community or ClothingSourceFilter.All)
-            ShowSkeletons(18);
+            ShowSkeletons(Math.Min(PageSize, 18));
 
         try
         {
-            // Yield so the UI can paint skeletons before WebView work
             await Task.Yield();
             var community = await CommunityClothingService.FetchAsync(token);
             token.ThrowIfCancellationRequested();
 
             _communityAssets = community.Select(ApplyFavoriteFlag).ToList();
-            ApplyFilter();
-            ThumbnailLoader.QueueMany(_communityAssets);
+            ApplyFilter(resetPage: true);
             StatusText = _communityAssets.Count > 0
                 ? $"{_communityAssets.Count} community clothing items"
                 : "No community items found. Check your connection and try Refresh.";
-
-            // Screenshot upgrade is optional and slow — only when forced refresh
-            if (force && _communityAssets.Count > 0)
-                _ = UpgradeCommunityScreenshotsAsync(_communityAssets, token);
         }
         catch (OperationCanceledException)
         {
-            // superseded
         }
         catch (Exception ex)
         {
             StatusText = $"Community load failed: {ex.Message}";
-            ApplyFilter();
+            ApplyFilter(resetPage: true);
         }
         finally
         {
             if (!token.IsCancellationRequested)
                 IsLoadingCommunity = false;
-        }
-    }
-
-    private async Task UpgradeCommunityScreenshotsAsync(List<AssetEntry> assets, CancellationToken token)
-    {
-        try
-        {
-            var progress = new Progress<string>(msg => StatusText = msg);
-            await CommunityClothingService.EnrichScreenshotsAsync(assets, progress, token);
-            ThumbnailLoader.QueueMany(assets);
-            StatusText = $"{assets.Count} community clothing items (screenshots updated)";
-        }
-        catch
-        {
-            // keep existing thumbs
         }
     }
 
@@ -386,9 +457,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
         return entry;
     }
 
-    private void ApplyFilter()
+    private void ApplyFilter(bool resetPage)
     {
-        Assets.Clear();
         var query = _searchText.Trim();
 
         IEnumerable<AssetEntry> source = SelectedCategory == AssetCategory.Clothes
@@ -410,15 +480,52 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 || (a.CommunityIdent?.Contains(query, StringComparison.OrdinalIgnoreCase) ?? false));
         }
 
-        var list = source
+        _filtered = source
             .OrderByDescending(a => a.IsFavorite)
             .ThenBy(a => a.DisplayName, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-        foreach (var asset in list)
+        _totalFiltered = _filtered.Count;
+        OnPropertyChanged(nameof(TotalPages));
+        OnPropertyChanged(nameof(PageLabel));
+
+        if (resetPage)
+            _currentPage = 1;
+        else
+            _currentPage = Math.Clamp(_currentPage, 1, TotalPages);
+
+        OnPropertyChanged(nameof(CurrentPage));
+        OnPropertyChanged(nameof(CanGoPrev));
+        OnPropertyChanged(nameof(CanGoNext));
+        RenderPage();
+        CommandManager.InvalidateRequerySuggested();
+    }
+
+    private void RenderPage()
+    {
+        // Unload bitmaps from previous page to free RAM (keep selected preview alive)
+        foreach (var old in Assets)
+        {
+            if (!old.IsSkeleton && !ReferenceEquals(old, SelectedAsset))
+                ThumbnailLoader.Unload(old);
+        }
+
+        Assets.Clear();
+
+        var pageItems = _filtered
+            .Skip((CurrentPage - 1) * PageSize)
+            .Take(PageSize)
+            .ToList();
+
+        foreach (var asset in pageItems)
             Assets.Add(asset);
 
-        ThumbnailLoader.QueueMany(list);
+        // Lazy-load only this page's thumbnails
+        ThumbnailLoader.QueueMany(pageItems);
+
+        // Encourage reclaim of unloaded BitmapImages
+        if (pageItems.Count > 0)
+            GC.Collect(1, GCCollectionMode.Optimized, blocking: false);
     }
 
     private void ToggleFavorite(AssetEntry? asset)
@@ -438,7 +545,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(SelectedIsFavorite));
 
         if (ClothingFilter == ClothingSourceFilter.Favorite)
-            ApplyFilter();
+            ApplyFilter(resetPage: false);
 
         StatusText = asset.IsFavorite
             ? $"Favorited {asset.DisplayName}"

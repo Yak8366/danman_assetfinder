@@ -5,7 +5,7 @@ namespace DanmanAssetFinder.Services;
 /// </summary>
 public static class AppReleaseInfo
 {
-    public const string Owner = "danman";
+    public const string Owner = "Yak8366";
     public const string Repo = "danman_assetfinder";
 
     public static string ApiLatestReleaseUrl =>
